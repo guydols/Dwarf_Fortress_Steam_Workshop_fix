@@ -12,7 +12,7 @@ This script:
 
 This replicates the manual fix described in the linked Steam guide.
 
-## How to Use
+## Usage
 
 ### Prerequisites
 
@@ -26,3 +26,8 @@ Clone this repository or download the script file directly and run fixer.py like
 ```bash
 python fixer.py "/home/guy/.steam/steam/steamapps/workshop/content/975370" "/home/guy/.steam/steam/steamapps/common/Dwarf Fortress/data/installed_mods"
 ```
+
+### Notes
+
+- The destination directory will be cleared of all directories and files, make sure you pass the correct paths!
+- Everytime you update your workshop collection you need to re-run the fixer.py
