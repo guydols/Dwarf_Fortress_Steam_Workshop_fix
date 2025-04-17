@@ -4,7 +4,7 @@ import re
 import argparse
 import sys
 
-def sync_directories(src_dir, dest_dir):
+def validate_directories(src_dir):
     if not os.path.exists(src_dir):
         print(f"Error: Source directory '{src_dir}' does not exist.")
         return False
@@ -13,6 +13,9 @@ def sync_directories(src_dir, dest_dir):
         print(f"Error: Source path '{src_dir}' is not a directory.")
         return False
 
+    return True
+
+def clear_destination(dest_dir):
     print(f"Clearing destination directory: {dest_dir}")
     if os.path.exists(dest_dir):
         for item in os.listdir(dest_dir):
@@ -24,70 +27,52 @@ def sync_directories(src_dir, dest_dir):
     else:
         os.makedirs(dest_dir)
 
-    print(f"Processing source directory: {src_dir}")
-    directories_processed = 0
-    failed_mods = []
+def extract_mod_id(info_file_path, directory_name, failed_mods):
+    try:
+        with open(info_file_path, 'r', encoding='utf-8') as file:
+            content = file.read()
+            match = re.search(r'\[ID:([^\]]+)\]', content)
+            if match:
+                directory_id = match.group(1)
+                print(f"Found ID: {directory_id} in directory {directory_name}")
+                return directory_id
+            else:
+                error = "No ID pattern found in info.txt"
+                failed_mods.append((directory_name, error))
+                print(f"Warning: No ID pattern found in info.txt for directory {directory_name}, skipping.")
+                return None
+    except Exception as e:
+        error = f"Error reading info.txt: {str(e)}"
+        failed_mods.append((directory_name, error))
+        print(f"Error reading info.txt in directory {directory_name}: {e}")
+        return None
 
-    for directory_name in os.listdir(src_dir):
-        directory_path = os.path.join(src_dir, directory_name)
+def copy_directory_contents(src_path, dest_path, directory_name, failed_mods):
+    mod_error = None
+    try:
+        print(f"Copying contents from {directory_name} to {os.path.basename(dest_path)}")
+        for item in os.listdir(src_path):
+            source_item = os.path.join(src_path, item)
+            dest_item = os.path.join(dest_path, item)
 
-        if not os.path.isdir(directory_path):
-            continue
-
-        mod_error = None
-
-        info_file_path = os.path.join(directory_path, "info.txt")
-        if not os.path.exists(info_file_path):
-            mod_error = "No info.txt found"
-            failed_mods.append((directory_name, mod_error))
-            print(f"Warning: No info.txt found in directory {directory_name}, skipping.")
-            continue
-
-        try:
-            with open(info_file_path, 'r', encoding='utf-8') as file:
-                content = file.read()
-                match = re.search(r'\[ID:([^\]]+)\]', content)
-                if match:
-                    directory_id = match.group(1)
-                    print(f"Found ID: {directory_id} in directory {directory_name}")
+            try:
+                if os.path.isdir(source_item):
+                    shutil.copytree(source_item, dest_item)
                 else:
-                    mod_error = "No ID pattern found in info.txt"
-                    failed_mods.append((directory_name, mod_error))
-                    print(f"Warning: No ID pattern found in info.txt for directory {directory_name}, skipping.")
-                    continue
-        except Exception as e:
-            mod_error = f"Error reading info.txt: {str(e)}"
-            failed_mods.append((directory_name, mod_error))
-            print(f"Error reading info.txt in directory {directory_name}: {e}")
-            continue
+                    shutil.copy2(source_item, dest_item)
+            except Exception as e:
+                mod_error = f"Failed to copy item '{item}': {str(e)}"
+                failed_mods.append((directory_name, mod_error))
+                print(f"Error copying {item} from {directory_name}: {e}")
 
-        dest_directory_path = os.path.join(dest_dir, directory_id)
-        os.makedirs(dest_directory_path, exist_ok=True)
+        return mod_error is None
+    except Exception as e:
+        error = f"General error during copy: {str(e)}"
+        failed_mods.append((directory_name, error))
+        print(f"Error processing directory {directory_name}: {e}")
+        return False
 
-        try:
-            print(f"Copying contents from {directory_name} to {directory_id}")
-            for item in os.listdir(directory_path):
-                source_item = os.path.join(directory_path, item)
-                dest_item = os.path.join(dest_directory_path, item)
-
-                try:
-                    if os.path.isdir(source_item):
-                        shutil.copytree(source_item, dest_item)
-                    else:
-                        shutil.copy2(source_item, dest_item)
-                except Exception as e:
-                    mod_error = f"Failed to copy item '{item}': {str(e)}"
-                    failed_mods.append((directory_name, mod_error))
-                    print(f"Error copying {item} from {directory_name}: {e}")
-
-            if mod_error is None:
-                directories_processed += 1
-
-        except Exception as e:
-            mod_error = f"General error during copy: {str(e)}"
-            failed_mods.append((directory_name, mod_error))
-            print(f"Error processing directory {directory_name}: {e}")
-
+def print_summary(directories_processed, failed_mods):
     print(f"\nSynchronization completed! Processed {directories_processed} directories successfully.")
 
     if failed_mods:
@@ -100,6 +85,42 @@ def sync_directories(src_dir, dest_dir):
     else:
         print("\nAll mods were copied successfully!")
 
+def process_directory(directory_path, directory_name, dest_dir, failed_mods):
+    info_file_path = os.path.join(directory_path, "info.txt")
+    if not os.path.exists(info_file_path):
+        failed_mods.append((directory_name, "No info.txt found"))
+        print(f"Warning: No info.txt found in directory {directory_name}, skipping.")
+        return False
+
+    directory_id = extract_mod_id(info_file_path, directory_name, failed_mods)
+    if not directory_id:
+        return False
+
+    dest_directory_path = os.path.join(dest_dir, directory_id)
+    os.makedirs(dest_directory_path, exist_ok=True)
+
+    return copy_directory_contents(directory_path, dest_directory_path, directory_name, failed_mods)
+
+def sync_directories(src_dir, dest_dir):
+    if not validate_directories(src_dir):
+        return False
+
+    clear_destination(dest_dir)
+
+    print(f"Processing source directory: {src_dir}")
+    directories_processed = 0
+    failed_mods = []
+
+    for directory_name in os.listdir(src_dir):
+        directory_path = os.path.join(src_dir, directory_name)
+
+        if not os.path.isdir(directory_path):
+            continue
+
+        if process_directory(directory_path, directory_name, dest_dir, failed_mods):
+            directories_processed += 1
+
+    print_summary(directories_processed, failed_mods)
     return True
 
 def main():
